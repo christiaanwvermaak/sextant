@@ -230,7 +230,7 @@ get("/", async (_request: Tina4Request, response: Tina4Response) =>
   // `oidc` decides whether the sign-in screen offers a single sign-on button or
   // only the local form. Rendered as an ATTRIBUTE rather than an inline script,
   // because `default-src 'self'` blocks inline <script> silently.
-  response.render("index", {
+  response.render("index.html", {
     version: process.env.SEXTANT_VERSION ?? "dev",
     oidc: OIDC_ENABLED ? "true" : "false",
     provider: process.env.OIDC_PROVIDER_NAME ?? "single sign-on",
