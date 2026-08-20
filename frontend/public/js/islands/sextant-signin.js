@@ -42,6 +42,12 @@
     render() {
       const failed = this.failed();
       const working = this.working();
+      // Read off <sextant-app>, which the server rendered. An inline <script>
+      // carrying this would be blocked by `default-src 'self'` and the button
+      // would simply never appear.
+      const root = document.querySelector("sextant-app");
+      const oidc = root && root.getAttribute("oidc") === "true";
+      const provider = (root && root.getAttribute("provider")) || "single sign-on";
 
       return html`
         <div class="signin">
@@ -50,6 +56,11 @@
             <p>Sign in to reach the databases this console is configured for.</p>
 
             ${failed ? html`<div class="notice bad">${failed}</div>` : ""}
+
+            ${oidc ? html`
+              <a class="btn primary sso" href="/login">Sign in with ${provider}</a>
+              <p class="or">or use the break-glass credential</p>
+            ` : ""}
 
             <form onsubmit=${(e) => this.submit(e)}>
               <label>

@@ -357,3 +357,11 @@ table.grid td.absent { background: repeating-linear-gradient(
     45deg, transparent, transparent 4px, var(--page) 4px, var(--page) 8px); }
 table.grid .absent-mark { color: var(--ink-faint); }
 table.grid .row-actions { white-space: nowrap; }
+
+/* Single sign-on button on the sign-in card. The local form stays below it: it
+ * is the break-glass path, for the day the identity provider is the outage. */
+.signin .sso { display: block; text-align: center; text-decoration: none; padding: 9px; }
+.signin .or {
+  text-align: center; font-size: 11.5px; color: var(--ink-faint);
+  margin: 14px 0 10px; text-transform: none;
+}
