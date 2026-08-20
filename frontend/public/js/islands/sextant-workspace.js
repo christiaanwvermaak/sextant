@@ -10,13 +10,20 @@
   const { signal, html, Tina4Element } = Tina4;
   const S = window.Sextant;
 
+  /* Compass's tab order, deliberately. Someone who uses Compass daily should
+   * not have to hunt for Schema because we sorted them differently. */
   const TABS = [
     ["documents", "Documents"],
     ["aggregate", "Aggregations"],
-    ["indexes", "Indexes"],
+    ["schema", "Schema"],
     ["explain", "Explain"],
+    ["indexes", "Indexes"],
     ["activity", "Activity"],
   ];
+
+  /* Compass shows documents three ways and remembers which you chose. The list
+   * view is the default there and here. */
+  const VIEWS = [["list", "List"], ["json", "JSON"], ["table", "Table"]];
 
   class SextantWorkspace extends Tina4Element {
     static shadow = false;
@@ -30,6 +37,7 @@
       this.failed = signal(null);
       this.note = signal(null);
       this.loading = signal(false);
+      this.view = signal("list");      // list | json | table, as Compass
       this.editing = signal(null);     // {doc, json}
       this.confirming = signal(null);  // {title, body, danger, run}
       this.indexes = signal([]);
@@ -54,6 +62,7 @@
       if (!S.connectionId()) return;
       if (tab === "activity") return this.loadActivity();
       if (!S.database() || !S.collection()) return;
+      if (tab === "schema") return;   // the island loads itself
       if (tab === "documents") return this.runFind();
       if (tab === "indexes") return this.loadIndexes();
     }
@@ -253,6 +262,12 @@
               ? html`<button class="btn" onclick=${() => this.insertDoc()}>Insert document</button>`
               : ""}
             <span class="spacer" style="margin-left:auto"></span>
+            <span class="viewtoggle">
+              ${VIEWS.map(([id, label]) => html`
+                <button class="vbtn" aria-selected=${String(this.view() === id)}
+                        onclick=${() => this.view.set(id)}>${label}</button>
+              `)}
+            </span>
             <button class="btn" disabled=${this.skip() === 0}
                     onclick=${() => this.runFind(Math.max(0, this.skip() - this.limit()))}>Previous</button>
             <button class="btn" onclick=${() => this.runFind(this.skip() + this.limit())}>Next</button>
@@ -261,12 +276,23 @@
       `;
     }
 
+    /* Compass's three views. The list view is per-document cards; JSON is one
+     * continuous array you can copy; the table view flattens documents onto
+     * shared columns, which is the only way to compare a page of them at a
+     * glance and is why Compass has it. */
     renderDocuments() {
       const docs = this.documents();
       const writable = S.connection() && S.connection().writable;
       if (this.loading()) return html`<div class="empty">Running…</div>`;
       if (!docs.length) return html`<div class="empty">No documents matched.</div>`;
 
+      const view = this.view();
+      if (view === "json") return this.renderJsonView(docs);
+      if (view === "table") return this.renderTableView(docs, writable);
+      return this.renderListView(docs, writable);
+    }
+
+    renderListView(docs, writable) {
       return html`
         <div>
           ${docs.map((doc) => html`
@@ -283,6 +309,81 @@
               <pre innerHTML=${S.highlight(doc)}></pre>
             </div>
           `)}
+        </div>
+      `;
+    }
+
+    renderJsonView(docs) {
+      /* One array, exactly as a shell would print it — so it can be copied
+       * straight into a script. Type wrappers are kept: `{"$oid": "..."}` is
+       * what makes it paste back correctly. */
+      return html`
+        <div class="doc">
+          <div class="doc-head">
+            <span>${docs.length} document${docs.length === 1 ? "" : "s"}</span>
+            <span class="actions">
+              <button class="btn" onclick=${(e) => this.copyJson(e, docs)}>Copy</button>
+            </span>
+          </div>
+          <pre innerHTML=${S.highlight(docs)}></pre>
+        </div>
+      `;
+    }
+
+    async copyJson(event, docs) {
+      const button = event.target;
+      try {
+        await navigator.clipboard.writeText(JSON.stringify(docs, null, 2));
+        button.textContent = "Copied";
+      } catch (e) {
+        // Clipboard access is denied in plenty of contexts. Say so rather than
+        // leaving a button that silently does nothing.
+        button.textContent = "Blocked";
+      }
+      setTimeout(() => { button.textContent = "Copy"; }, 1500);
+    }
+
+    renderTableView(docs, writable) {
+      /* Columns are the union of every top-level key across the page, in
+       * first-seen order. Union rather than the first document's keys: in a
+       * document store the second document routinely has a field the first does
+       * not, and showing only the first document's shape hides exactly that. */
+      const columns = [];
+      for (const doc of docs) {
+        for (const key of Object.keys(doc)) {
+          if (columns.indexOf(key) === -1) columns.push(key);
+        }
+      }
+
+      return html`
+        <div class="scroll-x">
+          <table class="grid">
+            <thead>
+              <tr>
+                ${columns.map((c) => html`<th>${c}</th>`)}
+                ${writable ? html`<th></th>` : ""}
+              </tr>
+            </thead>
+            <tbody>
+              ${docs.map((doc) => html`
+                <tr>
+                  ${columns.map((c) => html`
+                    <td class=${doc[c] === undefined ? "absent" : ""}>
+                      ${doc[c] === undefined
+                        ? html`<span class="absent-mark">—</span>`
+                        : html`<code innerHTML=${S.highlight(doc[c])}></code>`}
+                    </td>
+                  `)}
+                  ${writable ? html`
+                    <td class="row-actions">
+                      <button class="btn" onclick=${() => this.edit(doc)}>Edit</button>
+                      <button class="btn danger" onclick=${() => this.removeDoc(doc)}>Delete</button>
+                    </td>
+                  ` : ""}
+                </tr>
+              `)}
+            </tbody>
+          </table>
         </div>
       `;
     }
@@ -344,6 +445,9 @@
           </div>
           ${this.renderDocuments()}
         `;
+      }
+      if (tab === "schema") {
+        return html`<sextant-schema></sextant-schema>`;
       }
       if (tab === "indexes") {
         const ix = this.indexes();

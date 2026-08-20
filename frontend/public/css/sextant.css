@@ -276,3 +276,84 @@ table.log .failed { color: var(--danger); font-weight: 600; }
 
 /* Wide content scrolls inside its own box; the page never scrolls sideways. */
 .scroll-x { overflow-x: auto; max-width: 100%; }
+
+/* ── schema ─────────────────────────────────────────────────────────────── */
+/* A stacked bar per field, one colour per BSON type, colours stable across
+ * fields so the page can be read down. The bar is the feature: 98% string and
+ * 2% int is obvious at a glance and invisible in a table of numbers. */
+
+.schema { display: flex; flex-direction: column; gap: 6px; }
+
+.field {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden;
+}
+.field.mixed { border-color: #e6d3a3; }
+
+.field-head {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; cursor: pointer;
+}
+.field-head:hover { background: var(--page); }
+.field-head .path { font-family: var(--mono); font-size: 12.5px; font-weight: 600; }
+.field-head .types { display: flex; gap: 4px; flex-wrap: wrap; }
+.field-head .presence {
+  margin-left: auto; font-size: 11.5px; color: var(--ink-faint);
+  white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+.field-head .missing { color: var(--danger); }
+
+.chip {
+  font-size: 10.5px; padding: 1px 6px; border-radius: 9px;
+  border: 1px solid currentColor; white-space: nowrap;
+}
+
+.typebar { display: flex; height: 4px; background: var(--line); }
+.typebar .seg { height: 100%; }
+
+.field-detail { padding: 10px; border-top: 1px solid var(--line); background: var(--page); }
+.field-detail .range { font-size: 12px; color: var(--ink-soft); margin-bottom: 8px; }
+.field-detail .note { font-size: 12px; color: var(--ink-faint); margin-bottom: 6px; }
+.field-detail code {
+  font-family: var(--mono); font-size: 11.5px;
+  background: var(--panel); padding: 1px 4px; border-radius: 3px;
+  border: 1px solid var(--line);
+}
+
+table.dist { width: 100%; border-collapse: collapse; font-size: 12px; }
+table.dist td { padding: 3px 6px; vertical-align: middle; }
+table.dist .v { width: 45%; }
+table.dist .n { width: 60px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+table.dist .p { position: relative; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+table.dist .minibar {
+  display: inline-block; height: 8px; background: var(--brass);
+  border-radius: 2px; margin-right: 6px; vertical-align: middle; min-width: 2px;
+}
+
+/* ── document view modes ────────────────────────────────────────────────── */
+
+.viewtoggle { display: inline-flex; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+.vbtn {
+  font-family: inherit; font-size: 12px; padding: 4px 10px; cursor: pointer;
+  background: var(--panel); color: var(--ink-soft); border: 0;
+  border-right: 1px solid var(--line);
+}
+.vbtn:last-child { border-right: 0; }
+.vbtn[aria-selected="true"] { background: var(--brass); color: #1b1408; font-weight: 600; }
+
+table.grid { border-collapse: collapse; font-size: 12.5px; width: 100%; }
+table.grid th {
+  text-align: left; padding: 6px 9px; border: 1px solid var(--line);
+  background: var(--page); font-family: var(--mono); font-size: 11.5px;
+  position: sticky; top: 0; white-space: nowrap;
+}
+table.grid td {
+  padding: 5px 9px; border: 1px solid var(--line); vertical-align: top;
+  max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+table.grid td code { font-family: var(--mono); font-size: 12px; }
+/* A field the document does NOT have, which is different from one holding null
+ * and the distinction matters in a document store. */
+table.grid td.absent { background: repeating-linear-gradient(
+    45deg, transparent, transparent 4px, var(--page) 4px, var(--page) 8px); }
+table.grid .absent-mark { color: var(--ink-faint); }
+table.grid .row-actions { white-space: nowrap; }

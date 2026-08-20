@@ -18,7 +18,7 @@ import os
 from tina4_python.core.router import delete, get, post
 
 from src.app import config as config_mod
-from src.app import identity, mongo, mutations
+from src.app import identity, mongo, mutations, schema as schema_mod
 from src.app.audit import Audit, AuditError
 
 
@@ -203,6 +203,27 @@ async def explain(request, response):
     try:
         return response(mongo.explain(t["conn"], t["database"], t["collection"],
                                       filter=body.get("filter"), sort=body.get("sort")), 200)
+    except mongo.MongoError as exc:
+        return response({"error": str(exc)}, 400)
+
+
+@post("/api/{connection}/{database}/{collection}/schema", auth_required=False)
+async def schema(request, response):
+    """Compass's Schema tab: sample the collection and describe its shape.
+
+    A POST because it takes an optional filter, which is a JSON document — see
+    the note above `find`.
+    """
+    who, t, error = _target(request, response)
+    if error:
+        return error
+    body = _body(request)
+    try:
+        return response(schema_mod.analyse(
+            t["conn"], t["database"], t["collection"],
+            sample=body.get("sample", schema_mod.DEFAULT_SAMPLE),
+            filter=body.get("filter"),
+        ), 200)
     except mongo.MongoError as exc:
         return response({"error": str(exc)}, 400)
 
