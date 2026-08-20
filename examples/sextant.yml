@@ -1,4 +1,4 @@
-# Example configuration. Copy, edit, and point MONGO_CONSOLE_CONFIG at it.
+# Example configuration. Copy, edit, and point SEXTANT_CONFIG at it.
 #
 # ${VAR} is substituted from the environment so a password never lives in this
 # file. A missing variable fails at BOOT, not at connect time.
@@ -25,14 +25,14 @@ auth:
   # Everyday sign-in. Omit the whole oidc block to use only the local credential.
   # oidc:
   #   issuer: https://auth.example.com/realms/internal
-  #   client_id: mongo-console
+  #   client_id: sextant
   #   groups_claim: groups
   #   required_groups: [db-users]
 
   # Break-glass, for when the identity provider is itself the outage.
   local:
     username: operator
-    password_env: MONGO_CONSOLE_PASSWORD
+    password_env: SEXTANT_PASSWORD
 
 audit:
   # Append-only JSON Lines. Deliberately NOT inside the database being audited.

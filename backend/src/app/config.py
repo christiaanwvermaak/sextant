@@ -17,7 +17,7 @@ import re
 
 import yaml
 
-CONFIG_PATH = os.environ.get("MONGO_CONSOLE_CONFIG", "/config/mongo-console.yml")
+CONFIG_PATH = os.environ.get("SEXTANT_CONFIG", "/config/sextant.yml")
 
 # Substitutes ${ENV_VAR} so a connection string with a password can be assembled
 # from a Kubernetes secret rather than written into the config file.
@@ -118,7 +118,7 @@ class Auth:
 
         local = raw.get("local") or {}
         self.local_user = local.get("username")
-        self.local_password_env = local.get("password_env", "MONGO_CONSOLE_PASSWORD")
+        self.local_password_env = local.get("password_env", "SEXTANT_PASSWORD")
         self.local_enabled = bool(self.local_user and os.environ.get(self.local_password_env))
 
         # Starting with neither configured would serve an open console over
@@ -168,8 +168,8 @@ def load(path=None):
             raw = yaml.safe_load(fh) or {}
     except FileNotFoundError:
         raise ConfigError(
-            f"no config at {target}. Set MONGO_CONSOLE_CONFIG or mount one there. "
-            "See examples/mongo-console.yml."
+            f"no config at {target}. Set SEXTANT_CONFIG or mount one there. "
+            "See examples/sextant.yml."
         ) from None
     cfg = Config(_walk(raw))
     if path is None:

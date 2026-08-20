@@ -43,7 +43,7 @@ def client_for(connection):
             connection.uri,
             serverSelectionTimeoutMS=8000,
             connectTimeoutMS=8000,
-            appname="mongo-console",
+            appname="sextant",
         )
     return _clients[connection.id]
 

@@ -6,4 +6,4 @@ dist/
 data/
 *.log
 .env
-config/mongo-console.yml
+config/sextant.yml
