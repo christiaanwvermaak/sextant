@@ -1,0 +1,43 @@
+# Example configuration. Copy, edit, and point MONGO_CONSOLE_CONFIG at it.
+#
+# ${VAR} is substituted from the environment so a password never lives in this
+# file. A missing variable fails at BOOT, not at connect time.
+
+connections:
+  # A connection is read-only unless you say otherwise. That default is
+  # deliberate -- someone will point this at production before they finish
+  # reading the README.
+  - id: local
+    name: Local development
+    uri: mongodb://localhost:27017
+    writable: true
+    confirm_writes: false
+
+  # - id: production
+  #   name: Production
+  #   uri: mongodb://console:${PROD_PASSWORD}@mongo:27017/?authSource=admin
+  #   writable: true
+  #   confirm_writes: true            # every change must be confirmed
+  #   allowed_groups: [db-admins]     # OIDC groups permitted to use it
+  #   databases: [orders, customers]  # omit for "whatever the credential sees"
+
+auth:
+  # Everyday sign-in. Omit the whole oidc block to use only the local credential.
+  # oidc:
+  #   issuer: https://auth.example.com/realms/internal
+  #   client_id: mongo-console
+  #   groups_claim: groups
+  #   required_groups: [db-users]
+
+  # Break-glass, for when the identity provider is itself the outage.
+  local:
+    username: operator
+    password_env: MONGO_CONSOLE_PASSWORD
+
+audit:
+  # Append-only JSON Lines. Deliberately NOT inside the database being audited.
+  path: ./data/audit.log
+
+limits:
+  max_documents: 200
+  max_time_ms: 10000

@@ -1,0 +1,14 @@
+# Pinned to the 3.13 line. NOT `>=0.2`: that resolves to a different API
+# generation and fails silently at boot — it cost real time on another project.
+tina4-python>=3.13,<4
+
+pymongo>=4.8
+PyYAML>=6.0
+
+# Token verification. cryptography is explicit because PyJWT only gains RS256
+# with the [crypto] extra, and a missing extra shows up as "algorithm not
+# supported" at the first login rather than at install time.
+pyjwt[crypto]>=2.9
+cryptography>=42.0
+
+pytest>=8.3
