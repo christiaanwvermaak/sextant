@@ -17,6 +17,8 @@ import re
 
 import yaml
 
+from . import providers as providers_mod
+
 CONFIG_PATH = os.environ.get("SEXTANT_CONFIG", "/config/sextant.yml")
 
 # Substitutes ${ENV_VAR} so a connection string with a password can be assembled
@@ -99,22 +101,42 @@ class Connection:
 class Auth:
     """How people sign in.
 
-    Two doors, on purpose, mirroring the reasoning in Sentinel: OIDC against a
-    provider you already run is the everyday path, and a local credential is the
-    way in when that provider is itself the thing you are trying to fix. A
-    database console that cannot be opened during an identity outage is a console
-    you cannot use on the day you need it.
+    A LIST of providers, not one. Sextant is meant to sit in front of whatever
+    identity you already run — Keycloak here, WeldForge there, both at once
+    during a migration — and a single hard-coded block makes that impossible.
+
+    Plus a local break-glass credential, on purpose: OIDC against a provider you
+    already run is the everyday path, and a local login is the way in when that
+    provider is itself the outage. A database console that cannot be opened
+    during an identity incident is one you cannot use on the day you need it.
     """
 
     def __init__(self, raw):
         raw = raw or {}
-        oidc = raw.get("oidc") or {}
-        self.oidc_enabled = bool(oidc.get("issuer"))
-        self.issuer = oidc.get("issuer")
-        self.client_id = oidc.get("client_id")
-        self.audience = oidc.get("audience", self.client_id)
-        self.groups_claim = oidc.get("groups_claim", "groups")
-        self.required_groups = tuple(oidc.get("required_groups", ()) or ())
+
+        entries = raw.get("providers") or []
+        # Accept the older single-block form so an existing config keeps working
+        # rather than failing at boot after an upgrade.
+        if not entries and raw.get("oidc"):
+            legacy = dict(raw["oidc"])
+            legacy.setdefault("id", "oidc")
+            legacy.setdefault("name", "Single sign-on")
+            entries = [legacy]
+
+        self.providers = {}
+        self.by_issuer = {}
+        for entry in entries:
+            provider = providers_mod.Provider(entry)
+            if provider.id in self.providers:
+                raise ConfigError(f"duplicate provider id '{provider.id}'")
+            if provider.issuer in self.by_issuer:
+                raise ConfigError(
+                    f"providers '{self.by_issuer[provider.issuer].id}' and "
+                    f"'{provider.id}' share the issuer {provider.issuer}. A token "
+                    "could not be attributed to one of them."
+                )
+            self.providers[provider.id] = provider
+            self.by_issuer[provider.issuer] = provider
 
         local = raw.get("local") or {}
         self.local_user = local.get("username")
@@ -123,12 +145,22 @@ class Auth:
 
         # Starting with neither configured would serve an open console over
         # whatever databases the config names. Refuse instead.
-        if not self.oidc_enabled and not self.local_enabled:
+        if not self.providers and not self.local_enabled:
             raise ConfigError(
-                "no way to sign in is configured. Set auth.oidc.issuer, or "
-                "auth.local.username plus the password environment variable. "
-                "Refusing to start an unauthenticated console."
+                "no way to sign in is configured. Add at least one entry under "
+                "auth.providers, or auth.local.username plus its password "
+                "environment variable. Refusing to start an unauthenticated console."
             )
+
+    def provider_for_issuer(self, issuer):
+        return self.by_issuer.get((issuer or "").rstrip("/"))
+
+    def public(self):
+        """What the sign-in screen needs. Never a secret."""
+        return {
+            "providers": [p.public() for p in self.providers.values()],
+            "local": bool(self.local_enabled),
+        }
 
 
 class Config:

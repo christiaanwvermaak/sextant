@@ -22,12 +22,37 @@ connections:
   #   databases: [orders, customers]  # omit for "whatever the credential sees"
 
 auth:
-  # Everyday sign-in. Omit the whole oidc block to use only the local credential.
-  # oidc:
-  #   issuer: https://auth.example.com/realms/internal
-  #   client_id: sextant
-  #   groups_claim: groups
-  #   required_groups: [db-users]
+  # A LIST, not one. Sextant sits in front of whatever identity you already run,
+  # and more than one at a time is normal during a migration.
+  #
+  # Every provider here speaks OIDC and is DISCOVERED, never assumed: Sextant
+  # fetches {issuer}/.well-known/openid-configuration and reads the jwks_uri from
+  # it. Nothing is hard-coded to any one product.
+  providers:
+    # ── Keycloak ──────────────────────────────────────────────────────────
+    # The issuer includes the realm.
+    # - id: keycloak
+    #   name: CodeInfinity
+    #   issuer: https://auth.example.com/realms/internal
+    #   client_id: sextant
+    #   groups_claim: groups          # Keycloak's name for it
+    #   required_groups: [db-users]
+
+    # ── WeldForge ─────────────────────────────────────────────────────────
+    # Multi-tenant: the issuer includes the TENANT, as /t/<tenant>. Pointing it
+    # at the host root returns 403 from the app-authorization filter, which
+    # reads like a permissions problem rather than a wrong URL.
+    # - id: weldforge
+    #   name: WeldForge
+    #   issuer: https://weldforge.example.com/t/acme
+    #   client_id: sextant
+    #   groups_claim: roles           # WeldForge emits `roles`, not `groups`
+    #   required_groups: [db-admin]
+
+    # ── anything else ─────────────────────────────────────────────────────
+    # Auth0, Entra, Okta and Google all work the same way. If discovery lives
+    # somewhere other than the issuer (a cluster-internal Service, typically):
+    #   discovery_url: http://keycloak.svc/realms/internal/.well-known/openid-configuration
 
   # Break-glass, for when the identity provider is itself the outage.
   local:

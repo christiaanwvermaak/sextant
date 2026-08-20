@@ -55,12 +55,53 @@ the moment it matters.
 
 ## Sign-in
 
-Two doors, on purpose:
+**Any number of identity providers, plus a break-glass credential.**
 
-- **OIDC** against a provider you already run, for everyday use.
-- **A local break-glass credential**, for when that provider is itself the
-  outage. A database console you cannot open during an identity incident is one
-  you cannot use on the day you need it.
+Every provider speaks OIDC and is **discovered, never assumed**: Sextant fetches
+`{issuer}/.well-known/openid-configuration` and reads the `jwks_uri` from it. An
+earlier version hard-coded Keycloak's `/protocol/openid-connect/certs`, which is
+a Keycloak implementation detail and not part of OIDC — it works for exactly one
+product and fails against every other with a signing-key error that reads like a
+broken token.
+
+Verified against **Keycloak** and **WeldForge**, and the same configuration shape
+covers Auth0, Entra, Okta and Google.
+
+```yaml
+auth:
+  providers:
+    - id: keycloak
+      name: CodeInfinity
+      issuer: https://auth.example.com/realms/internal
+      client_id: sextant
+      groups_claim: groups        # Keycloak's name for it
+
+    - id: weldforge
+      name: WeldForge
+      issuer: https://weldforge.example.com/t/acme   # tenant in the path
+      client_id: sextant
+      groups_claim: roles         # WeldForge emits `roles`, not `groups`
+```
+
+**There is no standard claim for group membership.** Keycloak emits `groups`,
+WeldForge emits `roles`, and neither is wrong — so it is per-provider
+configuration rather than a constant. Usernames are the same story:
+`preferred_username`, then `email`, then `sub`, or pin one with `username_claim`.
+
+**WeldForge is multi-tenant** and its issuer must include the tenant, as
+`https://<host>/t/<tenant>`. Pointing at the host root returns 403 from its
+app-authorization filter, which reads like a permissions problem rather than a
+wrong URL.
+
+Two providers may not share an issuer — a token could not then be attributed to
+one of them, and Sextant refuses to start rather than pick.
+
+**The break-glass credential** is a local username and password, for when the
+identity provider is itself the outage. A database console you cannot open
+during an identity incident is one you cannot use on the day you need it. It
+carries **no groups**, so it reaches only connections with no `allowed_groups`
+restriction — an emergency login must not inherit the most privileged access in
+the config.
 
 Starting with neither configured is refused rather than quietly serving an open
 console.

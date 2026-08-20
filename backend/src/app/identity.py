@@ -11,79 +11,16 @@ import hmac
 import os
 import time
 
-import jwt
-from jwt import PyJWKClient
+from . import providers as providers_mod
 
 
 class AuthError(Exception):
     """Message is safe to show a user."""
 
 
-_jwks = {}
-
-
-def _jwks_for(issuer):
-    if issuer not in _jwks:
-        _jwks[issuer] = PyJWKClient(
-            issuer.rstrip("/") + "/protocol/openid-connect/certs",
-            cache_keys=True,
-        )
-    return _jwks[issuer]
-
-
-def bearer(request):
-    header = ""
-    try:
-        headers = request.headers or {}
-        header = headers.get("Authorization") or headers.get("authorization") or ""
-    except AttributeError:
-        header = ""
-    if not header.lower().startswith("bearer "):
-        return None
-    return header[7:].strip() or None
-
-
-def _from_token(auth, token):
-    """Verify signature, issuer and audience. Never trust an unverified claim."""
-    for attempt in (0, 1):
-        try:
-            key = _jwks_for(auth.issuer).get_signing_key_from_jwt(token)
-            claims = jwt.decode(
-                token, key.key, algorithms=["RS256"],
-                audience=auth.audience, issuer=auth.issuer,
-                options={"require": ["exp", "iat", "iss", "sub"]},
-            )
-            break
-        except jwt.exceptions.PyJWKClientError:
-            # Unknown key id is almost always a rotation. Refetch once.
-            if attempt:
-                raise AuthError("the token signing key is not recognised") from None
-        except jwt.ExpiredSignatureError:
-            raise AuthError("your session has expired, please sign in again") from None
-        except jwt.InvalidTokenError:
-            # Deliberately not distinguishing bad-signature from wrong-audience:
-            # that distinction is more useful to someone probing than to a user.
-            raise AuthError("that token is not valid for this application") from None
-    else:  # pragma: no cover
-        raise AuthError("the token could not be verified")
-
-    groups = claims.get(auth.groups_claim) or []
-    if isinstance(groups, str):
-        groups = [groups]
-    # Full group paths arrive as "/db-admins" from some providers. Accept both
-    # rather than making the operator guess which their realm emits.
-    groups = [g[1:] if isinstance(g, str) and g.startswith("/") else g for g in groups]
-
-    if auth.required_groups and not (set(auth.required_groups) & set(groups)):
-        raise AuthError(
-            "your account is not a member of a group permitted to use this console"
-        )
-
-    return {
-        "username": claims.get("preferred_username") or claims.get("email") or claims.get("sub"),
-        "groups": list(groups),
-        "via": "oidc",
-    }
+# Token verification lives in providers.py, which discovers each provider's own
+# jwks_uri rather than assuming Keycloak's path. See the note at the top of that
+# file — the hard-coded "/protocol/openid-connect/certs" was the bug.
 
 
 def _from_local(auth, username, password):
@@ -167,12 +104,26 @@ def identify(config, request):
     token = bearer(request)
     if not token:
         raise AuthError("not signed in")
-    # A local token is `user:expiry:mac` and never a JWT, which has two dots and
-    # a base64 header. Checking the shape avoids handing a local token to the
-    # JWKS client and getting a confusing signing-key error.
-    if token.count(".") >= 2 and config.auth.oidc_enabled:
-        return _from_token(config.auth, token)
-    return _from_local_token(config.auth, token)
+
+    # A local token is `user:expiry:mac` and never a JWT, which always has two
+    # dots. Checking the shape first avoids handing a local token to a JWKS
+    # client and getting a confusing signing-key error back.
+    if token.count(".") < 2:
+        return _from_local_token(config.auth, token)
+
+    # Read `iss` unverified ONLY to choose which provider verifies it. A forged
+    # issuer just means verification then fails against that provider's keys.
+    issuer = providers_mod.issuer_of(token)
+    provider = config.auth.provider_for_issuer(issuer)
+    if provider is None:
+        # Naming the issuer helps whoever configured it and tells an attacker
+        # nothing they did not already put in the token themselves.
+        raise AuthError(
+            f"no configured identity provider issues tokens for {issuer or 'that token'}")
+    try:
+        return provider.verify(token)
+    except providers_mod.ProviderError as exc:
+        raise AuthError(str(exc)) from None
 
 
 def sign_in_local(config, username, password):
