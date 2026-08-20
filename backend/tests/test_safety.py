@@ -150,3 +150,65 @@ def test_entries_are_newest_first(tmp_path):
     for i in range(3):
         a.record(who="w", action=f"a{i}", connection="c", database="d", collection="col")
     assert [e["action"] for e in a.tail()] == ["a2", "a1", "a0"]
+
+
+# ── the local session token ────────────────────────────────────────────────
+#
+# Added when the first draft had the frontend forward a trusted username header.
+# That works only while nothing else can reach the backend, and "not published"
+# is a deployment detail rather than authentication.
+
+from src.app import identity  # noqa: E402
+
+
+def test_a_valid_local_token_identifies_the_user(tmp_path, monkeypatch):
+    monkeypatch.setenv("TESTPW", "hunter2")
+    cfg = config_mod.load(str(write_config(tmp_path)))
+    who = identity.sign_in_local(cfg, "operator", "hunter2")
+    token = identity.issue_local_token(cfg.auth, who)
+    back = identity._from_local_token(cfg.auth, token)
+    assert back["username"] == "operator"
+    assert back["groups"] == []          # break-glass carries no groups, ever
+
+
+def test_a_tampered_token_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("TESTPW", "hunter2")
+    cfg = config_mod.load(str(write_config(tmp_path)))
+    who = identity.sign_in_local(cfg, "operator", "hunter2")
+    token = identity.issue_local_token(cfg.auth, who)
+
+    user, expires, mac = token.rsplit(":", 2)
+    for forged in (f"root:{expires}:{mac}",            # different user
+                   f"{user}:{int(expires)+99999}:{mac}",  # extended lifetime
+                   f"{user}:{expires}:{'0'*len(mac)}"):   # invented signature
+        with pytest.raises(identity.AuthError):
+            identity._from_local_token(cfg.auth, forged)
+
+
+def test_an_expired_token_is_refused(tmp_path, monkeypatch):
+    monkeypatch.setenv("TESTPW", "hunter2")
+    cfg = config_mod.load(str(write_config(tmp_path)))
+    who = identity.sign_in_local(cfg, "operator", "hunter2")
+    token = identity.issue_local_token(cfg.auth, who, now=0)   # issued in 1970
+    with pytest.raises(identity.AuthError) as exc:
+        identity._from_local_token(cfg.auth, token)
+    assert "expired" in str(exc.value)
+
+
+def test_the_token_is_not_the_password(tmp_path, monkeypatch):
+    """A leaked token must not hand back the credential that signs it."""
+    monkeypatch.setenv("TESTPW", "hunter2")
+    cfg = config_mod.load(str(write_config(tmp_path)))
+    who = identity.sign_in_local(cfg, "operator", "hunter2")
+    token = identity.issue_local_token(cfg.auth, who)
+    assert "hunter2" not in token
+
+
+def test_changing_the_configured_username_invalidates_old_tokens(tmp_path, monkeypatch):
+    monkeypatch.setenv("TESTPW", "hunter2")
+    cfg = config_mod.load(str(write_config(tmp_path)))
+    who = identity.sign_in_local(cfg, "operator", "hunter2")
+    token = identity.issue_local_token(cfg.auth, who)
+    cfg.auth.local_user = "someone-else"
+    with pytest.raises(identity.AuthError):
+        identity._from_local_token(cfg.auth, token)

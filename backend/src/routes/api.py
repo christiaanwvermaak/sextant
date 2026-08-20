@@ -32,8 +32,7 @@ def _caller(request, response):
     """(who, config, None) or (None, None, error_response)."""
     cfg = _cfg()
     try:
-        session = getattr(request, "session", None)
-        who = identity.identify(cfg, request, session)
+        who = identity.identify(cfg, request)
     except identity.AuthError as exc:
         return None, None, response({"error": str(exc)}, 401)
     return who, cfg, None
@@ -96,14 +95,13 @@ async def sign_in(request, response):
     body = _body(request)
     try:
         who = identity.sign_in_local(cfg, body.get("username"), body.get("password"))
+        token = identity.issue_local_token(cfg.auth, who)
     except identity.AuthError as exc:
         return response({"error": str(exc)}, 401)
-    session = getattr(request, "session", None)
-    if session is not None:
-        session["username"] = who["username"]
-        session["groups"] = who["groups"]
-        session["via"] = who["via"]
-    return response({"username": who["username"], "via": who["via"]}, 200)
+    # The token goes back to the FRONTEND, which stores it in a HttpOnly session
+    # cookie and sends it as a bearer. It is never handed to page JavaScript --
+    # anything that can read it can act as this user for eight hours.
+    return response({"username": who["username"], "via": who["via"], "token": token}, 200)
 
 
 # ── structure ──────────────────────────────────────────────────────────────

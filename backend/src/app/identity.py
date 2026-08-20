@@ -6,8 +6,10 @@ to care which was used:
 
     {"username": ..., "groups": [...], "via": "oidc" | "local"}
 """
+import hashlib
 import hmac
 import os
+import time
 
 import jwt
 from jwt import PyJWKClient
@@ -100,18 +102,77 @@ def _from_local(auth, username, password):
     return {"username": auth.local_user, "groups": [], "via": "local"}
 
 
-def identify(config, request, session=None):
-    """Resolve the caller, or raise AuthError."""
+# ── the local session token ────────────────────────────────────────────────
+#
+# A signed token rather than a trusted header.
+#
+# The obvious shortcut is for the frontend proxy to forward the signed-in
+# username in a header and have the backend believe it. That works right up
+# until anything else can reach the backend -- another pod, a port-forward, a
+# misconfigured Service -- at which point a header is a way to claim to be
+# anybody. "The backend is not published" is a deployment detail, and
+# authentication should not rest on one.
+#
+# So the backend signs a short-lived token at sign-in and verifies its own
+# signature afterwards. The frontend only carries it.
+
+_LOCAL_TTL = 8 * 3600
+
+
+def _local_secret(auth):
+    secret = os.environ.get(auth.local_password_env)
+    if not secret:
+        raise AuthError("local sign-in is not configured")
+    # Derived rather than used directly, so the token key is not the password
+    # itself -- a leaked token must not hand back the credential.
+    return hashlib.sha256(("sextant-local-v1:" + secret).encode()).digest()
+
+
+def issue_local_token(auth, who, now=None):
+    now = int(now if now is not None else time.time())
+    payload = f"{who['username']}:{now + _LOCAL_TTL}"
+    mac = hmac.new(_local_secret(auth), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}:{mac}"
+
+
+def _from_local_token(auth, token):
+    try:
+        username, expires, mac = token.rsplit(":", 2)
+    except ValueError:
+        raise AuthError("that session token is malformed") from None
+    expected = hmac.new(_local_secret(auth), f"{username}:{expires}".encode(),
+                        hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(mac, expected):
+        raise AuthError("that session token is not valid")
+    try:
+        if int(expires) < time.time():
+            raise AuthError("your session has expired, please sign in again")
+    except ValueError:
+        raise AuthError("that session token is malformed") from None
+    if username != auth.local_user:
+        # The configured break-glass username changed since the token was
+        # issued. Refuse rather than honouring a name that is no longer current.
+        raise AuthError("that session token is no longer valid")
+    return {"username": username, "groups": [], "via": "local"}
+
+
+def identify(config, request):
+    """Resolve the caller from the bearer token, or raise AuthError.
+
+    ONE credential path: a bearer token. An OIDC token is verified against the
+    issuer; a local token is verified against this backend's own signature. The
+    caller cannot choose which -- the shape decides, and a forged one satisfies
+    neither.
+    """
     token = bearer(request)
-    if token and config.auth.oidc_enabled:
+    if not token:
+        raise AuthError("not signed in")
+    # A local token is `user:expiry:mac` and never a JWT, which has two dots and
+    # a base64 header. Checking the shape avoids handing a local token to the
+    # JWKS client and getting a confusing signing-key error.
+    if token.count(".") >= 2 and config.auth.oidc_enabled:
         return _from_token(config.auth, token)
-    if session and session.get("username"):
-        return {
-            "username": session["username"],
-            "groups": session.get("groups", []),
-            "via": session.get("via", "local"),
-        }
-    raise AuthError("not signed in")
+    return _from_local_token(config.auth, token)
 
 
 def sign_in_local(config, username, password):

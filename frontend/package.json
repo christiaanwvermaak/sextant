@@ -1,0 +1,20 @@
+{
+  "name": "sextant-frontend",
+  "version": "0.1.0",
+  "description": "Sextant — a MongoDB console in the browser",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx --watch app.ts",
+    "start": "tsx app.ts",
+    "test": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "tina4-nodejs": "^3.13.100"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

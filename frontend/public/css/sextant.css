@@ -1,0 +1,278 @@
+/* Sextant.
+ *
+ * THIS FILE MUST STAY A FILE. tina4-nodejs ships a Content-Security-Policy of
+ * `default-src 'self'` by default, which blocks an inline <style> block
+ * silently — the page renders, the markup is all present, and not one rule
+ * applies. Grepping the HTML for your CSS will find it and prove nothing.
+ *
+ * The check that actually works, from the browser console:
+ *   document.styleSheets.length > 0 && getComputedStyle(document.body).fontFamily
+ *
+ * Palette is nautical brass and deep navy, deliberately NOT MongoDB's green and
+ * slate. This does the same job as Compass; it should not pretend to be it.
+ */
+
+:root {
+  --ink: #16232d;
+  --ink-soft: #55676f;
+  --ink-faint: #8a999f;
+  --page: #f6f7f8;
+  --panel: #ffffff;
+  --line: #dfe4e7;
+  --rail: #10202b;
+  --rail-soft: #1b3243;
+  --rail-ink: #cddae2;
+  --brass: #d9a441;
+  --brass-deep: #a97b28;
+  --danger: #b4331f;
+  --danger-soft: #fdf1ef;
+  --ok: #2f7d4f;
+  --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+  --sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --radius: 6px;
+}
+
+:root:not([data-theme="light"]) {
+  @media (prefers-color-scheme: dark) {
+    --ink: #e6edf1;
+    --ink-soft: #9fb0b9;
+    --ink-faint: #6d818b;
+    --page: #0c1820;
+    --panel: #12222c;
+    --line: #23394a;
+    --rail: #081219;
+    --rail-soft: #142835;
+  }
+}
+
+:root[data-theme="dark"] {
+  --ink: #e6edf1;
+  --ink-soft: #9fb0b9;
+  --ink-faint: #6d818b;
+  --page: #0c1820;
+  --panel: #12222c;
+  --line: #23394a;
+  --rail: #081219;
+  --rail-soft: #142835;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--page);
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── shell ──────────────────────────────────────────────────────────────── */
+
+.shell { display: grid; grid-template-columns: 280px 1fr; height: 100vh; }
+
+.rail {
+  background: var(--rail);
+  color: var(--rail-ink);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.rail-head {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--rail-soft);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.mark {
+  width: 22px; height: 22px; flex: none;
+  border: 2px solid var(--brass);
+  border-radius: 50%;
+  position: relative;
+}
+.mark::after {
+  content: ""; position: absolute; inset: 4px 4px auto auto;
+  width: 9px; height: 9px;
+  border-right: 2px solid var(--brass);
+  border-bottom: 2px solid var(--brass);
+  transform: rotate(45deg);
+}
+
+.rail-head h1 { font-size: 15px; margin: 0; letter-spacing: .3px; color: #fff; font-weight: 600; }
+.rail-head .ver { font-size: 11px; color: var(--ink-faint); margin-left: auto; }
+
+.rail-body { overflow-y: auto; flex: 1; padding: 6px 0 20px; }
+
+.rail h2 {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .9px;
+  color: var(--ink-faint); margin: 16px 16px 6px; font-weight: 600;
+}
+
+.tree-item {
+  display: flex; align-items: center; gap: 7px;
+  padding: 6px 16px; cursor: pointer; color: var(--rail-ink);
+  border-left: 2px solid transparent; font-size: 13px;
+}
+.tree-item:hover { background: var(--rail-soft); }
+.tree-item[aria-current="true"] {
+  background: var(--rail-soft); border-left-color: var(--brass); color: #fff;
+}
+.tree-item .count { margin-left: auto; font-size: 11px; color: var(--ink-faint); font-variant-numeric: tabular-nums; }
+.tree-item.db { padding-left: 26px; }
+.tree-item.col { padding-left: 38px; }
+
+.badge {
+  font-size: 10px; padding: 1px 6px; border-radius: 10px;
+  border: 1px solid currentColor; letter-spacing: .3px;
+}
+.badge.ro { color: var(--ink-faint); }
+.badge.rw { color: var(--brass); }
+
+/* ── main ───────────────────────────────────────────────────────────────── */
+
+.main { display: flex; flex-direction: column; overflow: hidden; }
+
+.crumb {
+  padding: 12px 20px; border-bottom: 1px solid var(--line);
+  background: var(--panel); display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: var(--ink-soft);
+}
+.crumb strong { color: var(--ink); font-weight: 600; }
+.crumb .spacer { margin-left: auto; }
+
+.tabs { display: flex; gap: 2px; padding: 0 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tab {
+  padding: 9px 14px; cursor: pointer; font-size: 13px; color: var(--ink-soft);
+  border-bottom: 2px solid transparent; background: none; border-top: 0; border-left: 0; border-right: 0;
+  font-family: inherit;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--brass); font-weight: 600; }
+
+.pane { flex: 1; overflow: auto; padding: 16px 20px 40px; }
+
+/* ── query bar ──────────────────────────────────────────────────────────── */
+
+.querybar {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 10px; margin-bottom: 14px;
+}
+.querybar .row { display: flex; gap: 8px; align-items: flex-start; }
+.querybar label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--ink-faint); display: block; margin-bottom: 3px;
+}
+.querybar .field { flex: 1; min-width: 0; }
+.querybar .narrow { flex: 0 0 110px; }
+
+textarea, input[type="text"], input[type="number"], input[type="password"] {
+  width: 100%; font-family: var(--mono); font-size: 12.5px;
+  background: var(--page); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px;
+  resize: vertical;
+}
+textarea:focus, input:focus { outline: 2px solid var(--brass); outline-offset: -1px; }
+
+/* ── documents ──────────────────────────────────────────────────────────── */
+
+.doc {
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+  margin-bottom: 8px; overflow: hidden;
+}
+.doc-head {
+  display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 12px;
+  color: var(--ink-soft); background: var(--page);
+}
+.doc-head .id { color: var(--brass-deep); }
+.doc-head .actions { margin-left: auto; display: flex; gap: 6px; }
+.doc pre {
+  margin: 0; padding: 10px; font-family: var(--mono); font-size: 12.5px;
+  line-height: 1.5; overflow-x: auto; white-space: pre; color: var(--ink);
+}
+
+/* Extended JSON type hints. These are what stop an ObjectId reading as a
+ * string, which is the failure that makes an edit silently match nothing. */
+.k { color: var(--ink-soft); }
+.s { color: #2c7a5b; }
+.n { color: #8a5a1a; }
+.b { color: #7a3ba8; }
+.t { color: var(--brass-deep); font-style: italic; }
+
+/* ── buttons ────────────────────────────────────────────────────────────── */
+
+.btn {
+  font-family: inherit; font-size: 12.5px; padding: 5px 11px;
+  border: 1px solid var(--line); border-radius: 4px;
+  background: var(--panel); color: var(--ink); cursor: pointer;
+}
+.btn:hover { border-color: var(--ink-faint); }
+.btn.primary { background: var(--brass); border-color: var(--brass-deep); color: #1b1408; font-weight: 600; }
+.btn.primary:hover { background: var(--brass-deep); color: #fff; }
+.btn.danger { color: var(--danger); border-color: #e5bdb5; }
+.btn.danger:hover { background: var(--danger-soft); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ── notices ────────────────────────────────────────────────────────────── */
+
+.notice {
+  padding: 9px 12px; border-radius: var(--radius); margin-bottom: 12px;
+  border: 1px solid var(--line); background: var(--panel); font-size: 13px;
+}
+.notice.bad { border-color: #e5bdb5; background: var(--danger-soft); color: var(--danger); }
+.notice.warn { border-color: #e6d3a3; background: #fdf8ec; color: #7a5a12; }
+.empty { color: var(--ink-faint); padding: 30px; text-align: center; font-size: 13px; }
+
+/* ── confirm dialog ─────────────────────────────────────────────────────── */
+/* Not window.confirm: a browser dialog blocks the event loop and cannot show
+ * the document being destroyed, which is the only thing that makes the decision
+ * an informed one. */
+
+.veil {
+  position: fixed; inset: 0; background: rgba(8, 18, 25, .55);
+  display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 40;
+}
+.dialog {
+  background: var(--panel); border-radius: 8px; max-width: 620px; width: 100%;
+  max-height: 80vh; display: flex; flex-direction: column; overflow: hidden;
+  border: 1px solid var(--line);
+}
+.dialog h3 { margin: 0; padding: 14px 16px; border-bottom: 1px solid var(--line); font-size: 15px; }
+.dialog .body { padding: 14px 16px; overflow: auto; }
+.dialog .foot { padding: 12px 16px; border-top: 1px solid var(--line); display: flex; gap: 8px; justify-content: flex-end; }
+.dialog pre {
+  background: var(--page); border: 1px solid var(--line); border-radius: 4px;
+  padding: 10px; font-family: var(--mono); font-size: 12px; max-height: 260px; overflow: auto;
+}
+
+/* ── sign in ────────────────────────────────────────────────────────────── */
+
+.signin { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.signin .card {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 26px; width: 340px;
+}
+.signin h1 { margin: 0 0 4px; font-size: 19px; }
+.signin p { margin: 0 0 18px; color: var(--ink-soft); font-size: 13px; }
+.signin label { display: block; margin-bottom: 10px; font-size: 12px; color: var(--ink-soft); }
+
+/* ── activity ───────────────────────────────────────────────────────────── */
+
+table.log { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+table.log th {
+  text-align: left; padding: 7px 9px; border-bottom: 1px solid var(--line);
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .7px; color: var(--ink-faint);
+}
+table.log td { padding: 7px 9px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.log tr:hover td { background: var(--panel); }
+table.log .act { font-family: var(--mono); }
+table.log .act.delete, table.log .act.delete_many { color: var(--danger); }
+table.log .act.insert { color: var(--ok); }
+table.log .failed { color: var(--danger); font-weight: 600; }
+
+/* Wide content scrolls inside its own box; the page never scrolls sideways. */
+.scroll-x { overflow-x: auto; max-width: 100%; }

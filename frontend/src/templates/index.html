@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sextant</title>
+<!--
+  NO inline <style> and NO inline <script> anywhere in this file.
+
+  tina4-nodejs serves a Content-Security-Policy of `default-src 'self'`, which
+  blocks both SILENTLY: the markup renders, not one rule or line applies, and
+  grepping this file for your CSS finds it and proves nothing. Everything lives
+  under /css and /js, which are same-origin and therefore allowed.
+
+  The check that actually works, from the browser console:
+    document.styleSheets.length > 0 && getComputedStyle(document.body).fontFamily
+-->
+<link rel="stylesheet" href="/css/sextant.css" />
+</head>
+<body>
+
+<sextant-app></sextant-app>
+
+<!-- tina4-js, the browser half of the stack. Served by tina4-nodejs from its own
+     package; it is not vendored into public/ and does not need to be. -->
+<script src="/js/tina4js.min.js"></script>
+<script src="/js/store.js"></script>
+<script src="/js/islands/sextant-signin.js"></script>
+<script src="/js/islands/sextant-rail.js"></script>
+<script src="/js/islands/sextant-workspace.js"></script>
+<script src="/js/islands/sextant-app.js"></script>
+</body>
+</html>
