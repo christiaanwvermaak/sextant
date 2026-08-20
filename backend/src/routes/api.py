@@ -13,6 +13,8 @@ reaches the handler and the caller gets a bare "Unauthorized". `auth_required=Fa
 opts out of THAT scheme, not out of authentication: `_caller` below is the real
 check and runs on every route. This cost an afternoon on another project.
 """
+import os
+
 from tina4_python.core.router import delete, get, post
 
 from src.app import config as config_mod
@@ -288,3 +290,43 @@ async def undo(request, response):
         _audit(), t["conn"], t["database"], t["collection"], body.get("entry") or {},
         who=who["username"],
     ), request, response)
+
+
+# ── liveness and readiness ─────────────────────────────────────────────────
+
+@get("/health")
+async def health(request, response):
+    """Liveness only. Deliberately says nothing about the databases: a console
+    that cannot reach a Mongo is still a running console, and restarting it
+    would not help."""
+    return response({"ok": True}, 200)
+
+
+@get("/ready")
+async def ready(request, response):
+    """Readiness, and it asserts an EFFECT rather than that the process is up.
+
+    Checks the config parses and the audit log is writable. A console that
+    cannot write its audit log must not accept traffic, because the first thing
+    it would do is refuse every change — or worse, allow one unrecorded.
+    """
+    try:
+        cfg = _cfg()
+    except config_mod.ConfigError as exc:
+        return response({"ok": False, "error": str(exc)}, 503)
+
+    directory = os.path.dirname(cfg.audit_path) or "."
+    probe = os.path.join(directory, ".sextant-ready-probe")
+    try:
+        os.makedirs(directory, exist_ok=True)
+        with open(probe, "w", encoding="utf-8") as fh:
+            fh.write("ok")
+        os.unlink(probe)
+    except OSError as exc:
+        return response({"ok": False, "error": f"audit log not writable: {exc}"}, 503)
+
+    return response({
+        "ok": True,
+        "connections": len(cfg.connections),
+        "providers": list(cfg.auth.providers),
+    }, 200)

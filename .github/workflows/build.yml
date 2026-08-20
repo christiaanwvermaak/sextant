@@ -1,0 +1,170 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # Tests first, and as their own job. A green build of an image whose safety
+  # rules are broken is worse than a red one — the whole point of this project
+  # is that a change to a production database is refused unless it can be
+  # recorded, and that is enforced in code with tests, not by convention.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install
+        working-directory: backend
+        run: pip install -r requirements.txt
+
+      - name: Test
+        working-directory: backend
+        run: python -m pytest tests/ -q
+
+      # Asserts an EFFECT rather than trusting the suite to have covered it:
+      # re-admitting writes by default must FAIL. A test file can be edited or
+      # skipped; this proves the guard is live in the code that ships.
+      - name: Prove the safe defaults are actually enforced
+        working-directory: backend
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import re, sys, pathlib
+          src = pathlib.Path("src/app/config.py").read_text(encoding="utf-8")
+          if not re.search(r'raw\.get\("writable",\s*False\)', src):
+              sys.exit("FAIL: connections no longer default to read-only")
+          if "if not self.oidc_enabled and not self.local_enabled" in src:
+              sys.exit("FAIL: stale single-provider auth guard")
+          if "not self.providers and not self.local_enabled" not in src:
+              sys.exit("FAIL: the refuse-to-start-without-auth guard is gone")
+          routes = pathlib.Path("src/routes/api.py").read_text(encoding="utf-8")
+          missing = [d for verb, d in re.findall(r"@(post|delete)\(([^)]*)\)", routes, re.S)
+                     if "auth_required=False" not in d]
+          if missing:
+              sys.exit(f"FAIL: write routes unreachable behind Tina4's own guard: {missing}")
+          for banned in ("insert_one", "update_one", "replace_one", "delete_one"):
+              for m in re.finditer(re.escape(banned), routes):
+                  if "mutations." not in routes[max(0, m.start() - 12):m.start()]:
+                      sys.exit(f"FAIL: {banned} called outside mutations.py, skipping the audit")
+          print("safe defaults verified")
+          PY
+
+  # The images must actually SERVE, not merely build. Both start happily when
+  # misconfigured: the backend answers before it can reach a database, and the
+  # frontend without its @tina4 links installs cleanly and then fails on the
+  # first rendered route. Only a real request catches either.
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - component: backend
+            image: sextant-backend
+            port: 7145
+            probe: /health
+          - component: frontend
+            image: sextant-frontend
+            port: 7148
+            probe: /healthz
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Compute image and tag
+        id: meta
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          sha=$(git rev-parse --short=7 HEAD)
+          echo "image=${REGISTRY}/${owner}/${{ matrix.image }}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${{ github.run_number }}-${sha}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        uses: docker/build-push-action@v5
+        with:
+          context: ./${{ matrix.component }}
+          load: true
+          tags: ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Prove the image serves
+        run: |
+          set -euo pipefail
+          IMAGE="${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}"
+
+          if [ "${{ matrix.component }}" = "backend" ]; then
+            # A minimal config, because the backend REFUSES to start without a
+            # way to sign in and without a writable audit directory. That
+            # refusal is the behaviour under test as much as the probe is.
+            mkdir -p /tmp/cfg
+            cat > /tmp/cfg/sextant.yml <<'YML'
+          connections:
+            - id: ci
+              name: CI
+              uri: mongodb://127.0.0.1:27017
+          auth:
+            local:
+              username: ci
+              password_env: SEXTANT_PASSWORD
+          audit:
+            path: /data/audit.log
+          YML
+            docker run -d --name probe -p ${{ matrix.port }}:${{ matrix.port }} \
+              -e SEXTANT_PASSWORD=ci-password \
+              -v /tmp/cfg/sextant.yml:/config/sextant.yml:ro \
+              "$IMAGE"
+          else
+            docker run -d --name probe -p ${{ matrix.port }}:${{ matrix.port }} "$IMAGE"
+          fi
+
+          for i in $(seq 1 30); do
+            if curl -fsS "http://127.0.0.1:${{ matrix.port }}${{ matrix.probe }}" >/dev/null 2>&1; then
+              echo "serving after ${i}s"
+              curl -fsS "http://127.0.0.1:${{ matrix.port }}${{ matrix.probe }}"; echo
+              docker rm -f probe >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+
+          echo "FAILED: the image built but never served ${{ matrix.probe }}"
+          docker logs probe
+          docker rm -f probe >/dev/null
+          exit 1
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/build-push-action@v5
+        with:
+          context: ./${{ matrix.component }}
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.image }}:latest
+          cache-from: type=gha
